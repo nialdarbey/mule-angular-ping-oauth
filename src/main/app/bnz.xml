@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:jetty="http://www.mulesoft.org/schema/mule/jetty"
+	xmlns:jetty-ssl="http://www.mulesoft.org/schema/mule/jetty-ssl"
+	xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" xmlns:https="http://www.mulesoft.org/schema/mule/https"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" version="EE-3.6.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/https http://www.mulesoft.org/schema/mule/https/current/mule-https.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/apikit http://www.mulesoft.org/schema/mule/apikit/current/mule-apikit.xsd
+http://www.mulesoft.org/schema/mule/jetty-ssl http://www.mulesoft.org/schema/mule/jetty-ssl/current/mule-jetty-ssl.xsd
+http://www.mulesoft.org/schema/mule/jetty http://www.mulesoft.org/schema/mule/jetty/current/mule-jetty.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+ 
+	    <https:connector name="httpsConnector" cookieSpec="netscape"
+		validateConnections="true" sendBufferSize="0" receiveBufferSize="0"
+		receiveBacklog="0" clientSoTimeout="10000" serverSoTimeout="10000"
+		socketSoLinger="0" doc:name="HTTP\HTTPS">
+		<https:tls-server path="cacerts.jks"
+			storePassword="changeit" />
+	</https:connector>
+
+	<flow name="bnz" >
+		<http:inbound-endpoint exchange-pattern="request-response"
+			address="http://localhost:${https.port}/bnz" doc:name="localhost/bnz">
+			<not-filter>
+				<wildcard-filter pattern="/favicon.ico" />
+			</not-filter>
+		</http:inbound-endpoint>
+
+		<http:static-resource-handler
+			resourceBase="${app.home}/docroot" defaultFile="index.html"
+			doc:name="HTTP Static Resource Handler" />
+	</flow>
+
+	<!-- Url rewriting. Convert the html5 type urls /auth to angular default /bnz/#/auth
+		type -->
+	<flow name="rewrite" >
+		<http:inbound-endpoint exchange-pattern="request-response"
+			address="http://localhost:${https.port}/auth" doc:name="localhost/auth" />
+		<set-variable variableName="state" value="#[message.inboundProperties.state]" doc:name="state"/>
+		<set-payload
+			value="#[ [ 'grant_type' : 'authorization_code', 'client_id' : 'angular-app',  'scope' : 'full', 'code' : message.inboundProperties.code ] ]"
+			doc:name="Token Request" />
+		
+		<https:outbound-endpoint exchange-pattern="request-response"
+			method="POST"
+			address="https://ec2-54-69-90-236.us-west-2.compute.amazonaws.com:9031/as/token.oauth2"
+			contentType="application/x-www-form-urlencoded" doc:name="Authorization Server" />
+        <object-to-string-transformer doc:name="Object to String"/>
+			
+		<http:response-builder doc:name="HTTP Response Builder"
+			status="302">
+			<http:location
+				value="http://localhost:8082/bnz/#auth?token=#[json:/access_token]&amp;state=#[flowVars.state]" />
+		</http:response-builder>
+
+	</flow>
+
+</mule>
